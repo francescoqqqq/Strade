@@ -15,7 +15,7 @@ from shapely.geometry import box  # pyright: ignore[reportMissingModuleSource]
 osm_file = "/workspace/belgium-roads.osm.pbf"
 dataset_id = "001"
 dataset_name = "Strade"
-num_images = 2000
+num_images = 20
 image_size = 512
 max_attempts = 100  # Numero massimo di tentativi per trovare patch con strade
 data = "imm,lab,all"  # Opzioni: imm, lab, all (separate da virgola)
