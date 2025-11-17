@@ -1,39 +1,75 @@
 #!/usr/bin/env python3
 import os
+import json
 import random
-import requests
-import geopandas as gpd
+import requests  # pyright: ignore[reportMissingModuleSource]
+import geopandas as gpd  # pyright: ignore[reportMissingModuleSource]
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw  # pyright: ignore[reportMissingImports]
 from io import BytesIO
 import math
-from shapely.geometry import box
+from pathlib import Path
+from shapely.geometry import box  # pyright: ignore[reportMissingModuleSource]
 
 # === CONFIGURAZIONE ===
-osm_file = "/home/francesco/dottorato/strade/belgium-roads.osm.pbf"
-output_dir = "/home/francesco/dottorato/strade/"
-num_images = 5
+osm_file = "/workspace/belgium-roads.osm.pbf"
+dataset_id = "001"
+dataset_name = "Strade"
+num_images = 2000
 image_size = 512
 max_attempts = 100  # Numero massimo di tentativi per trovare patch con strade
-data = "imm,true"  # Opzioni: imm, lab, true (separate da virgola)
+data = "imm,lab,all"  # Opzioni: imm, lab, all (separate da virgola)
+# imm = solo immagini satellitari → imagesTr/
+# lab = solo maschere binarie strade → labelsTr/
+# all = immagini satellitari + strade → allTr/
 
-# Crea cartelle
-images_dir = os.path.join(output_dir, "images")
-labels_dir = os.path.join(output_dir, "labels")
-true_dir = os.path.join(output_dir, "true")
+# Struttura nnU-Net
+nnunet_raw_base = "/workspace/nnUNet_raw"
+dataset_dir = os.path.join(nnunet_raw_base, f"Dataset{dataset_id}_{dataset_name}")
+images_dir = os.path.join(dataset_dir, "imagesTr")  # Immagini satellitari RGB (imm)
+labels_dir = os.path.join(dataset_dir, "labelsTr")  # Maschere binarie strade (lab)
+all_dir = os.path.join(dataset_dir, "allTr")  # Immagini satellitari + strade (all)
+labels_viz_dir = os.path.join(dataset_dir, "labelsTr_viz")  # Versioni visualizzabili delle label (0/255)
 
 # Parsing opzioni data
 data_set = {x.strip() for x in data.split(',') if x.strip()}
 SAVE_IMM = 'imm' in data_set
 SAVE_LAB = 'lab' in data_set
-SAVE_TRUE = 'true' in data_set
+SAVE_ALL = 'all' in data_set
 
+# Crea cartelle necessarie
 if SAVE_IMM:
     os.makedirs(images_dir, exist_ok=True)
 if SAVE_LAB:
     os.makedirs(labels_dir, exist_ok=True)
-if SAVE_TRUE:
-    os.makedirs(true_dir, exist_ok=True)
+    os.makedirs(labels_viz_dir, exist_ok=True)  # Anche versioni visualizzabili
+if SAVE_ALL:
+    os.makedirs(all_dir, exist_ok=True)
+
+# Crea/aggiorna dataset.json se non esiste
+dataset_json_path = os.path.join(dataset_dir, "dataset.json")
+if not os.path.exists(dataset_json_path):
+    dataset_json = {
+        "channel_names": {
+            "0": "R",
+            "1": "G",
+            "2": "B"
+        },
+        "labels": {
+            "background": 0,
+            "road": 1
+        },
+        "numTraining": num_images,  # Sarà aggiornato alla fine
+        "file_ending": ".png",
+        "name": dataset_name,
+        "description": "Road segmentation from satellite imagery (RGB)",
+        "reference": "Francesco Girardello - PhD Project",
+        "licence": "proprietary",
+        "release": "1.0"
+    }
+    with open(dataset_json_path, 'w') as f:
+        json.dump(dataset_json, f, indent=4)
+    print(f"✓ Creato dataset.json in {dataset_dir}")
 
 print("Caricamento dati OSM...")
 gdf = gpd.read_file(osm_file, layer='lines')
@@ -43,7 +79,28 @@ if len(roads) == 0:
     print("ERRORE: Nessuna strada trovata!")
     exit(1)
 
-print(f"✓ Caricate {len(roads)} strade")
+print(f"Strade prima del filtro: {len(roads)}")
+
+# === FILTRO 1: Solo strade principali visibili da satellite ===
+ALLOWED_HIGHWAY_TYPES = [
+    'motorway', 'motorway_link',      # Autostrade
+    'trunk', 'trunk_link',            # Strade di scorrimento
+    'primary', 'primary_link',        # Strade primarie
+    'secondary', 'secondary_link',    # Strade secondarie
+    'tertiary', 'tertiary_link',      # Strade terziarie
+    'residential',                     # Strade residenziali (larghe)
+    # 'unclassified',                 # Strade non classificate (spesso strette)
+    # 'service',                       # Strade di servizio (parcheggi, etc)
+    # 'track', 'path', 'footway', 'cycleway'  # NON includere: troppo stretti/nascosti
+]
+
+roads = roads[roads['highway'].isin(ALLOWED_HIGHWAY_TYPES)].copy()
+
+if len(roads) == 0:
+    print("ERRORE: Nessuna strada valida dopo il filtro!")
+    exit(1)
+
+print(f"✓ Strade dopo filtro tipo: {len(roads)} (eliminati sentieri/piste nascoste)")
 
 # Converti a WGS84 se necessario
 if roads.crs is not None and roads.crs != 'EPSG:4326':
@@ -126,10 +183,64 @@ def download_satellite_image(bbox, zoom=17, size=512):
     
     return resized
 
+def calculate_vegetation_score(img):
+    """Calcola score di vegetazione (0-1). Più alto = più verde/alberi"""
+    img_array = np.array(img)
+    
+    # Calcola pseudo-NDVI (Normalized Difference Vegetation Index)
+    # NDVI = (NIR - Red) / (NIR + Red)
+    # Per RGB usiamo: (Green - Red) / (Green + Red + epsilon)
+    
+    r = img_array[:, :, 0].astype(float)
+    g = img_array[:, :, 1].astype(float)
+    b = img_array[:, :, 2].astype(float)
+    
+    # Pseudo vegetation index
+    epsilon = 1e-6
+    veg_index = (g - r) / (g + r + epsilon)
+    
+    # Conta pixel "verdi" (vegetazione)
+    green_pixels = np.sum(veg_index > 0.15)  # Soglia empirica
+    total_pixels = veg_index.size
+    
+    vegetation_score = green_pixels / total_pixels
+    return vegetation_score
+
+def is_patch_valid(img, max_vegetation=0.60, min_brightness=30):
+    """Valida se una patch è adatta per il training
+    
+    Args:
+        img: Immagine PIL
+        max_vegetation: Percentuale massima di vegetazione tollerata (0-1)
+        min_brightness: Luminosità media minima (0-255)
+    
+    Returns:
+        (bool, str): (is_valid, reason)
+    """
+    # Check 1: Troppa vegetazione
+    veg_score = calculate_vegetation_score(img)
+    if veg_score > max_vegetation:
+        return False, f"Troppa vegetazione ({veg_score:.1%})"
+    
+    # Check 2: Troppo scura (ombre/nuvole)
+    img_array = np.array(img)
+    mean_brightness = np.mean(img_array)
+    if mean_brightness < min_brightness:
+        return False, f"Troppo scura (brightness={mean_brightness:.1f})"
+    
+    # Check 3: Troppi pixel neri (tile mancanti)
+    black_pixels = np.sum(np.all(img_array == 0, axis=2))
+    total_pixels = img_array.shape[0] * img_array.shape[1]
+    black_ratio = black_pixels / total_pixels
+    if black_ratio > 0.10:  # Max 10% pixel neri
+        return False, f"Troppi tile mancanti ({black_ratio:.1%})"
+    
+    return True, "OK"
+
 def process_satellite_image(sat_img, bbox, size=512):
     """Processa l'immagine satellitare con matplotlib per avere lo stesso formato"""
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg  # pyright: ignore[reportMissingImports]
+    from matplotlib.figure import Figure  # pyright: ignore[reportMissingImports]
     
     fig = Figure(figsize=(size/100, size/100), dpi=100)
     canvas = FigureCanvasAgg(fig)
@@ -158,7 +269,7 @@ def process_satellite_image(sat_img, bbox, size=512):
     
     return Image.fromarray(rgb_array, mode='RGB')
 
-def create_road_binary_mask(roads_subset, bbox, size=512, line_width=3):
+def create_road_binary_mask(roads_subset, bbox, size=512, line_width=5):
     """Rasterizza le geometrie delle strade su una maschera binaria mono-canale (L)."""
     if roads_subset.crs is not None and roads_subset.crs != 'EPSG:4326':
         roads_subset = roads_subset.to_crs('EPSG:4326')
@@ -201,12 +312,19 @@ def create_road_binary_mask(roads_subset, bbox, size=512, line_width=3):
                         if len(coords) >= 2:
                             draw.line([to_px(pt) for pt in coords], fill=255, width=line_width)
 
-    return mask
+    # Converti da 0/255 a 0/1 per nnU-Net (le strade sono 1, background è 0)
+    mask_array = np.array(mask)
+    mask_array = (mask_array > 0).astype(np.uint8)  # Converti 255 → 1
+    return Image.fromarray(mask_array, mode='L')
 
-def create_road_mask(roads_subset, bbox, sat_img, size=512):
-    """Crea maschera con strade bianche sopra l'immagine satellitare"""
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
+def create_road_mask(roads_subset, bbox, sat_img, size=512, line_width=5, mask_black_areas=True):
+    """Crea maschera con strade bianche sopra l'immagine satellitare
+    
+    Args:
+        mask_black_areas: Se True, rimuove le strade dalle aree completamente nere (tile mancanti)
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg  # pyright: ignore[reportMissingImports]
+    from matplotlib.figure import Figure  # pyright: ignore[reportMissingImports]
     
     # Assicurati che le strade siano nel sistema di coordinate corretto
     if roads_subset.crs is not None and roads_subset.crs != 'EPSG:4326':
@@ -227,7 +345,7 @@ def create_road_mask(roads_subset, bbox, sat_img, size=512):
     ax.imshow(sat_img, extent=[bbox[0], bbox[2], bbox[1], bbox[3]], aspect='equal', interpolation='bilinear')
     
     # Disegna strade in bianco sopra
-    roads_subset.plot(ax=ax, color='white', linewidth=3, alpha=1.0)
+    roads_subset.plot(ax=ax, color='white', linewidth=line_width, alpha=1.0)
     # Reimposta i limiti dopo il plot (GeoPandas può autoscalare)
     ax.set_xlim(bbox[0], bbox[2])
     ax.set_ylim(bbox[1], bbox[3])
@@ -241,8 +359,22 @@ def create_road_mask(roads_subset, bbox, sat_img, size=512):
     
     # Converti in RGB
     rgb_array = img_array[:, :, :3]
+    result = Image.fromarray(rgb_array, mode='RGB')
     
-    return Image.fromarray(rgb_array, mode='RGB')
+    # Maschera le strade dove l'immagine satellitare è completamente nera (tile mancanti)
+    if mask_black_areas:
+        sat_array = np.array(sat_img)
+        result_array = np.array(result)
+        
+        # Trova pixel completamente neri nell'immagine satellitare (tile mancanti)
+        black_mask = (sat_array[:, :, 0] == 0) & (sat_array[:, :, 1] == 0) & (sat_array[:, :, 2] == 0)
+        
+        # Nelle aree nere, copia l'immagine satellitare originale (nero) invece delle strade bianche
+        result_array[black_mask] = sat_array[black_mask]
+        
+        result = Image.fromarray(result_array, mode='RGB')
+    
+    return result
 
 def find_patch_with_roads(roads, bounds, patch_size_deg, max_attempts=100):
     """Trova una patch casuale che contiene almeno una strada"""
@@ -291,27 +423,49 @@ while saved_images < num_images and attempts < max_attempts * num_images:
     print(f"  Trovate {len(roads_in_patch)} strade")
     
     sat_img_raw = None
-    # === SCARICA TILE SATELLITARE (solo se serve imm o lab) ===
-    if SAVE_IMM or SAVE_LAB:
+    # === SCARICA TILE SATELLITARE (solo se serve imm o all) ===
+    if SAVE_IMM or SAVE_ALL:
         print("  Scaricando immagine satellitare...")
         sat_img_raw = download_satellite_image(bbox, zoom=17, size=image_size)
+        
+        # === VALIDAZIONE PATCH (FILTRO 2: Qualità immagine) ===
+        is_valid, reason = is_patch_valid(sat_img_raw, max_vegetation=0.60, min_brightness=30)
+        if not is_valid:
+            print(f"  ⚠️  Patch scartata: {reason}")
+            continue  # Salta questa patch e prova la prossima
     
-    # === PROCESSA IMMAGINE BASE (senza strade) ===
+    # === SALVA IMMAGINE SATELLITARE RGB (imm) ===
     if SAVE_IMM and sat_img_raw is not None:
-        print("  Processando immagine base...")
+        print("  Processando immagine satellitare...")
         sat_img_processed = process_satellite_image(sat_img_raw, bbox, size=image_size)
-        sat_img_processed.save(os.path.join(images_dir, f"road_{saved_images:04d}.png"))
+        # Salva immagine RGB completa (nnU-Net NaturalImage2DIO gestisce RGB automaticamente)
+        img_filename = f"{dataset_name.lower()}_{saved_images:04d}_0000.png"
+        sat_img_processed.save(os.path.join(images_dir, img_filename))
     
-    # === CREA MASCHERA STRADE ===
-    if SAVE_LAB and sat_img_raw is not None:
-        print("  Creando maschera strade con sfondo satellitare...")
-        mask = create_road_mask(roads_in_patch, bbox, sat_img_raw, size=image_size)
-        mask.save(os.path.join(labels_dir, f"road_{saved_images:04d}.png"))
-    if SAVE_TRUE:
-        if not (SAVE_IMM or SAVE_LAB):
-            print("  Creando maschera strade (solo strade, senza satellite)...")
-        true_mask = create_road_binary_mask(roads_in_patch, bbox, size=image_size)
-        true_mask.save(os.path.join(true_dir, f"road_{saved_images:04d}.png"))
+    # === SALVA IMMAGINE SATELLITARE + STRADE (all) ===
+    if SAVE_ALL and sat_img_raw is not None:
+        print("  Creando immagine satellitare + strade...")
+        all_img = create_road_mask(roads_in_patch, bbox, sat_img_raw, size=image_size)
+        all_filename = f"{dataset_name.lower()}_{saved_images:04d}.png"
+        all_img.save(os.path.join(all_dir, all_filename))
+    
+    # === SALVA MASCHERA STRADE BINARIA (lab) ===
+    if SAVE_LAB:
+        print("  Creando maschera strade binaria...")
+        lab_mask = create_road_binary_mask(roads_in_patch, bbox, size=image_size)
+        
+        # Verifica che ci siano abbastanza pixel strada
+        road_pixels = np.sum(np.array(lab_mask) > 0)
+        if road_pixels < 50:  # Almeno 50 pixel di strada
+            print(f"  ⚠️  Troppo pochi pixel strada ({road_pixels}), patch scartata")
+            continue
+        # lab_mask ora contiene valori 0 e 1 (corretto per nnUNet)
+        lbl_filename = f"{dataset_name.lower()}_{saved_images:04d}.png"
+        lab_mask.save(os.path.join(labels_dir, lbl_filename))
+        
+        # Salva anche versione visualizzabile (0/255) per debug
+        lab_mask_viz = lab_mask.point(lambda p: p * 255)
+        lab_mask_viz.save(os.path.join(labels_viz_dir, lbl_filename))
     
     print(f"  ✓ Salvata\n")
     saved_images += 1
@@ -321,9 +475,20 @@ if saved_images < num_images:
 else:
     print("✓ COMPLETATO!")
 
+# Aggiorna dataset.json con il numero reale di immagini salvate
+if os.path.exists(dataset_json_path):
+    with open(dataset_json_path, 'r') as f:
+        dataset_json = json.load(f)
+    dataset_json["numTraining"] = saved_images
+    with open(dataset_json_path, 'w') as f:
+        json.dump(dataset_json, f, indent=4)
+    print(f"✓ Aggiornato dataset.json con numTraining: {saved_images}")
+
+print(f"\n📁 File salvati in:")
 if SAVE_IMM:
-    print(f"  Images: {images_dir}")
+    print(f"  Images (imm): {images_dir}")
 if SAVE_LAB:
-    print(f"  Labels: {labels_dir}")
-if SAVE_TRUE:
-    print(f"  True: {true_dir}")
+    print(f"  Labels per nnUNet (lab): {labels_dir} [valori 0/1]")
+    print(f"  Labels per visualizzazione: {labels_viz_dir} [valori 0/255]")
+if SAVE_ALL:
+    print(f"  All (all): {all_dir}")
