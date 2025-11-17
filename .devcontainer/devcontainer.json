@@ -1,22 +1,21 @@
 {
     "name": "nnU-Net Satellite Segmentation",
-    // Istruzione a usare il Dockerfile in questa stessa cartella per la build
     "build": {
         "dockerfile": "Dockerfile"
     },
-    // Specificare l'utente root è cruciale, come hai fatto in precedenza con Podman
     "remoteUser": "root",
-    // Mappiamo la cartella locale (il repository Git) a /workspace nel container
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
     "workspaceFolder": "/workspace",
-    
-    // Configurazione che esegue un comando dopo la creazione del container
     "postCreateCommand": "nnunetv2_download_pretrained_weights",
-
-    // Variabili d'ambiente da impostare (anche se sono già nel Dockerfile, è una buona pratica replicarle qui)
-    "remoteEnv": {
-        "NNUNET_RAW_DATA_BASE": "/workspace/nnUNet_raw",
-        "NNUNET_PREPROCESSED_DATA_BASE": "/workspace/nnUNet_preprocessed",
-        "NNUNET_RESULTS_BASE": "/workspace/nnUNET_results"
-    }
+    "containerEnv": {
+        "nnUNet_raw": "/workspace/nnUNet_raw",
+        "nnUNet_preprocessed": "/workspace/nnUNet_preprocessed",
+        "nnUNet_results": "/workspace/nnUNet_results"
+    },
+    "runArgs": [
+        "--gpus=all",
+        "--device", "nvidia.com/gpu=all",
+        "--userns=keep-id",
+        "--ipc=host"
+    ]
 }

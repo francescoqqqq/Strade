@@ -16,24 +16,19 @@ RUN apt update && apt upgrade -y && \
     git \
     wget \
     nano \
-    # Pulizia della cache per ridurre le dimensioni dell'immagine
     && rm -rf /var/lib/apt/lists/*
 
 # Configurazione dell'ambiente virtuale
-# Creiamo la cartella di lavoro principale (che sarà mappata sul disco grande)
 WORKDIR /workspace
 
 # Creazione e attivazione dell'ambiente virtuale
 RUN python3 -m venv /venv
-# Aggiungiamo l'ambiente virtuale al PATH
 ENV PATH="/venv/bin:$PATH"
 
-# Installazione dei pacchetti Python e PyTorch (versione SOLO CPU)
-# Nota: usiamo l'ambiente virtuale appena creato
-# NUOVA RIGA CORRETTA:
+# Installazione PyTorch con CUDA 12.1 (compatibile con driver 535)
 RUN pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    torch torchvision torchaudio \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir \
     nnunetv2 \
     numpy \
     scikit-image \
@@ -42,10 +37,11 @@ RUN pip install --no-cache-dir \
     Pillow \
     pandas \
     matplotlib
+
 # Impostazione delle variabili d'ambiente per nnU-Net
-ENV NNUNET_RAW_DATA_BASE="/workspace/nnUNet_raw"
-ENV NNUNET_PREPROCESSED_DATA_BASE="/workspace/nnUNet_preprocessed"
-ENV NNUNET_RESULTS_BASE="/workspace/nnUNET_results"
+ENV nnUNet_raw="/workspace/nnUNet_raw"
+ENV nnUNet_preprocessed="/workspace/nnUNet_preprocessed"
+ENV nnUNet_results="/workspace/nnUNet_results"
 
 # Comando di default all'avvio: apri la shell Bash
 CMD ["/bin/bash"]

@@ -1,0 +1,50 @@
+# Configuration file for Dataset001_Strade generation
+# Edit this file and run: python Buono.py --config config.yaml
+
+dataset:
+  id: "001"
+  name: "Strade"
+  description: "Road segmentation from satellite imagery (RGB)"
+  reference: "Francesco Girardello - PhD Project"
+  licence: "proprietary"
+  release: "1.0"
+
+input:
+  osm_file: "/workspace/belgium-roads.osm.pbf"
+  # For other regions, download from:
+  # https://download.geofabrik.de/
+
+generation:
+  num_images: 2000
+  image_size: 512
+  patch_size_deg: 0.005  # ~500m
+  max_attempts: 100
+  
+  # Output options: "imm", "lab", "all" (comma-separated)
+  # imm = satellite images → imagesTr/
+  # lab = binary road masks → labelsTr/
+  # all = satellite + roads overlay → allTr/
+  data: "imm,lab,all"
+
+satellite:
+  # ESRI World Imagery (no API key required)
+  tile_server: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile"
+  zoom: 17  # ~2.39m/pixel at equator
+  tile_size: 256
+
+roads:
+  line_width: 5  # pixels
+  # OSM highway types to include (leave empty for all)
+  # highway_types: ["motorway", "trunk", "primary", "secondary", "tertiary", "residential"]
+  highway_types: []
+
+output:
+  base_dir: "/workspace/nnUNet_raw"
+  create_viz: true  # Create visualization versions of labels (0/255)
+
+nnunet:
+  # nnU-Net directories (set as environment variables)
+  raw_dir: "/workspace/nnUNet_raw"
+  preprocessed_dir: "/workspace/nnUNet_preprocessed"
+  results_dir: "/workspace/nnUNet_results"
+
