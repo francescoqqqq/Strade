@@ -1,11 +1,3 @@
-# nnU-Net directories (large files)
-nnUNet_raw/*/imagesTr/*.png
-nnUNet_raw/*/labelsTr/*.png
-nnUNet_raw/*/labelsTr_viz/*.png
-nnUNet_raw/*/allTr/*.png
-nnUNet_preprocessed/
-nnUNet_results/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -28,17 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Environment
-.env
-.venv
-env/
+# Virtual environments
 venv/
 ENV/
-env.bak/
-venv.bak/
+env/
 
 # IDE
 .vscode/
@@ -47,21 +32,47 @@ venv.bak/
 *.swo
 *~
 
+# Jupyter
+.ipynb_checkpoints/
+
+# nnU-Net codebase (separate git repo)
+nnUNet/
+
+# nnU-Net directories (large files)
+nnUNet_raw/*/imagesTr/*.png
+nnUNet_raw/*/labelsTr/*.png
+nnUNet_raw/*/labelsTr_viz/*.png
+nnUNet_raw/*/allTr/*.png
+nnUNet_preprocessed/*/nnUNetPlans_2d/
+nnUNet_preprocessed/*/gt_segmentations/
+nnUNet_results/**/fold_*/*.png
+nnUNet_results/**/fold_*/validation/
+nnUNet_results/**/fold_*/validation_raw/
+nnUNet_results/**/fold_*/*.pth
+nnUNet_results/**/fold_*/*.txt
+
+# Keep structure but ignore large files
+!nnUNet_raw/*/dataset.json
+!nnUNet_preprocessed/*/nnUNetPlans.json
+!nnUNet_preprocessed/*/dataset_fingerprint.json
+
+# OSM files (very large)
+*.osm.pbf
+
+# Temporary files
+*.tmp
+*.log
+*.pkl
+*.pth.tar
+
+# Backup folders
+backups/
+
+# Results
+comparison_results/*.png
+risultati/Confronto_imm/*.png
+test_*.png
+
 # OS
 .DS_Store
 Thumbs.db
-
-# Large data files
-*.pbf
-*.osm
-*.geojson
-
-# Temporary files
-test_*.png
-sample_*.png
-debug_*.png
-*.tmp
-
-# Logs
-*.log
-logs/

@@ -2,6 +2,7 @@
 """
 Script per testare le predizioni di nnU-Net su Dataset001_Strade
 Mostra: Immagine Satellitare | Predizione | Ground Truth | Overlay
+Salva risultati in: risultati/risultati_test.txt e risultati/Confronto_imm/
 """
 
 import os
@@ -11,6 +12,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from pathlib import Path
 import random
+from datetime import datetime
 
 # ========== CONFIGURAZIONE ==========
 dataset_name = "Dataset001_Strade"
@@ -24,7 +26,21 @@ labels_dir = os.path.join(raw_data_dir, "labelsTr")
 
 # Directory predizioni (usa validation set generato durante training)
 predictions_dir = f"/workspace/nnUNet_results/{dataset_name}/nnUNetTrainer__nnUNetPlans__2d/fold_{fold}/validation"
-output_dir = "/workspace/comparison_results"
+
+# Directory output organizzata
+output_base_dir = "/workspace/risultati"
+output_images_dir = os.path.join(output_base_dir, "Confronto_imm")
+output_report_file = os.path.join(output_base_dir, "risultati_test.txt")
+
+# ========== IMPOSTAZIONI TEST ==========
+# MODE: 'all', 'random', 'specific'
+TEST_MODE = 'random'           # 'all' = tutte, 'random' = N casuali, 'specific' = numeri specifici
+
+# Se TEST_MODE = 'random':
+NUM_RANDOM = 20             # Numero di immagini casuali da testare
+
+# Se TEST_MODE = 'specific':
+SPECIFIC_IMAGES = [166, 317, 351, 485, 711, 930, 1186, 1332, 1496, 1797]  # Numeri delle immagini (strade_XXXX)
 
 # ========================================
 
@@ -75,16 +91,23 @@ def load_image_triple(image_name):
     return img, pred, gt, None
 
 
-def create_overlay(img, mask, color=[255, 0, 0], alpha=0.5):
-    """Crea overlay colorato della maschera sull'immagine"""
-    overlay = img.copy()
-    mask_bool = mask > 0
+def calculate_metrics(pred, gt):
+    """Calcola Dice, IoU e Accuracy"""
+    pred_bool = pred > 0
+    gt_bool = gt > 0
     
-    # Applica colore dove c'è la maschera
-    for i in range(3):
-        overlay[mask_bool, i] = (alpha * color[i] + (1 - alpha) * img[mask_bool, i]).astype(np.uint8)
+    # Dice Coefficient
+    intersection = np.sum(pred_bool & gt_bool)
+    dice = 2.0 * intersection / (np.sum(pred_bool) + np.sum(gt_bool)) if (np.sum(pred_bool) + np.sum(gt_bool)) > 0 else 0.0
     
-    return overlay
+    # IoU
+    union = np.sum(pred_bool | gt_bool)
+    iou = intersection / union if union > 0 else 0.0
+    
+    # Pixel Accuracy
+    accuracy = np.sum(pred_bool == gt_bool) / pred_bool.size
+    
+    return dice, iou, accuracy
 
 
 def visualize_comparison(img, pred, gt, title="", save_path=None):
@@ -120,23 +143,107 @@ def visualize_comparison(img, pred, gt, title="", save_path=None):
     axes[3].axis('off')
     
     # Calcola metriche
-    intersection = np.sum((pred > 0) & (gt > 0))
-    union = np.sum((pred > 0) | (gt > 0))
-    iou = intersection / union if union > 0 else 0
-    
-    dice = 2 * intersection / (np.sum(pred > 0) + np.sum(gt > 0)) if (np.sum(pred > 0) + np.sum(gt > 0)) > 0 else 0
+    dice, iou, accuracy = calculate_metrics(pred, gt)
     
     # Titolo con metriche
-    fig.suptitle(f'{title}\nIoU: {iou:.4f} | Dice: {dice:.4f}', 
+    fig.suptitle(f'{title}\nDice: {dice:.4f} | IoU: {iou:.4f} | Accuracy: {accuracy:.4f}', 
                  fontsize=14, fontweight='bold', y=1.02)
     
     plt.tight_layout()
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"  ✓ Salvato: {save_path}")
+        print(f"  ✓ Salvato: {os.path.basename(save_path)}")
     
-    return fig, (iou, dice)
+    plt.close(fig)
+    
+    return dice, iou, accuracy
+
+
+def write_report(results, report_file):
+    """Scrive report con tabelle metriche"""
+    with open(report_file, 'w', encoding='utf-8') as f:
+        # Header
+        f.write("═" * 80 + "\n")
+        f.write("  REPORT RISULTATI TEST - SEGMENTAZIONE STRADE\n")
+        f.write("═" * 80 + "\n\n")
+        
+        f.write(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Dataset: {dataset_name}\n")
+        f.write(f"Fold: {fold}\n")
+        f.write(f"Numero campioni: {len(results)}\n")
+        f.write(f"Checkpoint: checkpoint_best.pth\n")
+        f.write("\n")
+        
+        # Calcola metriche una volta
+        dices = [r[1] for r in results]
+        ious = [r[2] for r in results]
+        accs = [r[3] for r in results]
+        
+        # ═══ PRIMA: STATISTICHE GLOBALI ═══
+        f.write("═" * 80 + "\n")
+        f.write("STATISTICHE GLOBALI\n")
+        f.write("═" * 80 + "\n\n")
+        
+        f.write(f"{'Metrica':<20} {'Media':>12} {'Std Dev':>12} {'Min':>10} {'Max':>10}\n")
+        f.write("─" * 80 + "\n")
+        
+        f.write(f"{'Dice Coefficient':<20} "
+                f"{np.mean(dices):>12.4f} "
+                f"{np.std(dices):>12.4f} "
+                f"{np.min(dices):>10.4f} "
+                f"{np.max(dices):>10.4f}\n")
+        
+        f.write(f"{'IoU':<20} "
+                f"{np.mean(ious):>12.4f} "
+                f"{np.std(ious):>12.4f} "
+                f"{np.min(ious):>10.4f} "
+                f"{np.max(ious):>10.4f}\n")
+        
+        f.write(f"{'Pixel Accuracy':<20} "
+                f"{np.mean(accs):>12.4f} "
+                f"{np.std(accs):>12.4f} "
+                f"{np.min(accs):>10.4f} "
+                f"{np.max(accs):>10.4f}\n")
+        
+        f.write("\n")
+        
+        # ═══ POI: TABELLA RISULTATI INDIVIDUALI ═══
+        f.write("═" * 80 + "\n")
+        f.write("METRICHE PER OGNI IMMAGINE\n")
+        f.write("═" * 80 + "\n\n")
+        
+        f.write(f"{'Immagine':<25} {'Dice':>10} {'IoU':>10} {'Accuracy':>10}\n")
+        f.write("─" * 80 + "\n")
+        
+        for img_name, dice, iou, acc in results:
+            base_name = img_name.replace('_0000.png', '')
+            f.write(f"{base_name:<25} {dice:>10.4f} {iou:>10.4f} {acc:>10.4f}\n")
+        
+        f.write("─" * 80 + "\n\n")
+        
+        # Performance breakdown
+        f.write("─" * 80 + "\n")
+        f.write("DISTRIBUZIONE PERFORMANCE\n")
+        f.write("─" * 80 + "\n\n")
+        
+        excellent = sum(1 for d in dices if d > 0.95)
+        good = sum(1 for d in dices if 0.85 <= d <= 0.95)
+        fair = sum(1 for d in dices if 0.70 <= d < 0.85)
+        poor = sum(1 for d in dices if d < 0.70)
+        
+        total = len(dices)
+        
+        f.write(f"Eccellenti (Dice > 0.95):     {excellent:3d}/{total} ({excellent/total*100:5.1f}%)\n")
+        f.write(f"Buone (Dice 0.85-0.95):       {good:3d}/{total} ({good/total*100:5.1f}%)\n")
+        f.write(f"Discrete (Dice 0.70-0.85):    {fair:3d}/{total} ({fair/total*100:5.1f}%)\n")
+        f.write(f"Problematiche (Dice < 0.70):  {poor:3d}/{total} ({poor/total*100:5.1f}%)\n")
+        
+        f.write("\n" + "═" * 80 + "\n")
+        f.write("File immagini salvati in: risultati/Confronto_imm/\n")
+        f.write("═" * 80 + "\n")
+    
+    print(f"\n✅ Report salvato in: {report_file}")
 
 
 def main():
@@ -148,8 +255,11 @@ def main():
     run_predictions_if_needed()
     
     # Crea directory output
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"📁 Output directory: {output_dir}\n")
+    os.makedirs(output_base_dir, exist_ok=True)
+    os.makedirs(output_images_dir, exist_ok=True)
+    print(f"📁 Output directory: {output_base_dir}/")
+    print(f"   - Immagini: {output_images_dir}/")
+    print(f"   - Report: {output_report_file}\n")
     
     # Lista immagini (solo quelle con predizioni nel validation set)
     pred_files = sorted([f for f in os.listdir(predictions_dir) if f.endswith('.png')])
@@ -159,42 +269,35 @@ def main():
         print("❌ Nessuna predizione trovata!")
         return
     
-    print(f"📊 Trovate {len(all_images)} predizioni (validation set)\n")
+    print(f"📊 Trovate {len(all_images)} predizioni (validation set)")
     
-    # Chiedi quante visualizzare
-    print("Opzioni:")
-    print("  1. Visualizza N campioni casuali")
-    print("  2. Visualizza campioni specifici (es: 0, 10, 50)")
-    print("  3. Visualizza tutti (crea solo file, non mostra)")
-    
-    choice = input("\nScelta [1/2/3]: ").strip()
-    
+    # Seleziona immagini in base alla configurazione
     selected_images = []
     
-    if choice == '1':
-        num = int(input("Quanti campioni? [default: 5]: ").strip() or "5")
-        selected_images = random.sample(all_images, min(num, len(all_images)))
+    if TEST_MODE == 'random':
+        num = min(NUM_RANDOM, len(all_images))
+        selected_images = random.sample(all_images, num)
+        print(f"📋 Modalità: RANDOM - {num} immagini casuali")
     
-    elif choice == '2':
-        indices_str = input("Indici (separati da virgola, es: 0,10,50): ").strip()
-        indices = [int(x.strip()) for x in indices_str.split(',')]
-        selected_images = [all_images[i] for i in indices if i < len(all_images)]
+    elif TEST_MODE == 'specific':
+        # Cerca le immagini per NOME invece che per indice dell'array
+        requested_names = [f'strade_{str(i).zfill(4)}_0000.png' for i in SPECIFIC_IMAGES]
+        selected_images = [img for img in all_images if img in requested_names]
+        
+        if len(selected_images) < len(requested_names):
+            missing = set(requested_names) - set(selected_images)
+            print(f"⚠️  Alcune immagini non trovate nel validation set: {[m.replace('_0000.png', '') for m in missing]}")
+        
+        print(f"📋 Modalità: SPECIFIC - {len(selected_images)}/{len(requested_names)} immagini trovate")
     
-    elif choice == '3':
+    else:  # 'all' o default
         selected_images = all_images
-        print(f"\n⚠️  Modalità batch: genererò {len(selected_images)} immagini senza visualizzarle.")
-        show = False
-    else:
-        print("Scelta non valida. Uso default: 5 campioni casuali.")
-        selected_images = random.sample(all_images, min(5, len(all_images)))
-    
-    show = choice != '3'
+        print(f"📋 Modalità: ALL - Tutte le {len(all_images)} immagini")
     
     print(f"\n🎨 Elaborazione {len(selected_images)} campioni...\n")
     
-    # Metriche globali
-    ious = []
-    dices = []
+    # Lista per raccogliere risultati
+    results = []
     
     # Processa ogni immagine
     for idx, img_name in enumerate(selected_images, 1):
@@ -208,32 +311,40 @@ def main():
             continue
         
         # Crea visualizzazione
-        save_path = os.path.join(output_dir, f"{base_name}_comparison.png")
-        fig, (iou, dice) = visualize_comparison(img, pred, gt, title=base_name, save_path=save_path)
+        save_path = os.path.join(output_images_dir, f"{base_name}_comparison.png")
+        dice, iou, accuracy = visualize_comparison(img, pred, gt, title=base_name, save_path=save_path)
         
-        ious.append(iou)
-        dices.append(dice)
-        
-        if show and idx <= 10:  # Mostra solo prime 10 per non intasare
-            plt.show()
-        else:
-            plt.close(fig)
+        # Salva risultati
+        results.append((img_name, dice, iou, accuracy))
     
-    # Statistiche finali
+    # Statistiche in console
     print("\n" + "="*70)
-    print("📊 STATISTICHE GLOBALI")
+    print("📊 STATISTICHE FINALI")
     print("="*70)
-    print(f"Campioni elaborati: {len(ious)}")
-    print(f"IoU medio:  {np.mean(ious):.4f} ± {np.std(ious):.4f}")
-    print(f"Dice medio: {np.mean(dices):.4f} ± {np.std(dices):.4f}")
-    print(f"IoU min:    {np.min(ious):.4f}")
-    print(f"IoU max:    {np.max(ious):.4f}")
-    print("="*70 + "\n")
     
-    print(f"✓ Risultati salvati in: {output_dir}/")
-    print()
+    dices = [r[1] for r in results]
+    ious = [r[2] for r in results]
+    accs = [r[3] for r in results]
+    
+    print(f"Campioni elaborati: {len(results)}")
+    print(f"\nDice Coefficient:")
+    print(f"  Media: {np.mean(dices):.4f} ± {np.std(dices):.4f}")
+    print(f"  Range: [{np.min(dices):.4f}, {np.max(dices):.4f}]")
+    print(f"\nIoU:")
+    print(f"  Media: {np.mean(ious):.4f} ± {np.std(ious):.4f}")
+    print(f"  Range: [{np.min(ious):.4f}, {np.max(ious):.4f}]")
+    print(f"\nPixel Accuracy:")
+    print(f"  Media: {np.mean(accs):.4f} ± {np.std(accs):.4f}")
+    print(f"  Range: [{np.min(accs):.4f}, {np.max(accs):.4f}]")
+    print("="*70)
+    
+    # Scrivi report su file
+    write_report(results, output_report_file)
+    
+    print(f"\n✅ Elaborazione completata!")
+    print(f"   📊 Report: {output_report_file}")
+    print(f"   🖼️  Immagini: {output_images_dir}/\n")
 
 
 if __name__ == "__main__":
     main()
-

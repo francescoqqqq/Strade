@@ -15,10 +15,10 @@ from shapely.geometry import box  # pyright: ignore[reportMissingModuleSource]
 osm_file = "/workspace/belgium-roads.osm.pbf"
 dataset_id = "001"
 dataset_name = "Strade"
-num_images = 20
+num_images = 2000
 image_size = 512
 max_attempts = 100  # Numero massimo di tentativi per trovare patch con strade
-data = "imm,lab,all"  # Opzioni: imm, lab, all (separate da virgola)
+data = "imm, lab"  # Opzioni: imm, lab, all (separate da virgola)
 # imm = solo immagini satellitari → imagesTr/
 # lab = solo maschere binarie strade → labelsTr/
 # all = immagini satellitari + strade → allTr/
@@ -140,8 +140,19 @@ def latlon_to_pixel_in_tile(lat, lon, zoom, tile_x, tile_y, tile_size=256):
     
     return x_pixel, y_pixel
 
-def download_satellite_image(bbox, zoom=17, size=512):
-    """Scarica immagine satellitare per un bbox specifico"""
+def download_satellite_image(bbox, zoom=17, size=512, max_retries=2, use_parallel=True):
+    """Scarica immagine satellitare per un bbox specifico con download parallelo
+    
+    Args:
+        bbox: Bounding box [minx, miny, maxx, maxy]
+        zoom: Livello zoom tile
+        size: Dimensione finale immagine
+        max_retries: Numero massimo tentativi per tile falliti (default 2)
+        use_parallel: Se True, scarica i 9 tile in parallelo (MOLTO più veloce!)
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     # Calcola centro del bbox
     lon_center = (bbox[0] + bbox[2]) / 2
     lat_center = (bbox[1] + bbox[3]) / 2
@@ -149,19 +160,40 @@ def download_satellite_image(bbox, zoom=17, size=512):
     # Ottieni tile che contiene il centro
     tile_x, tile_y = latlon_to_tile(lat_center, lon_center, zoom)
     
-    # Scarica tile centrale e quelli adiacenti (griglia 3x3)
-    tiles = []
-    for dy in [-1, 0, 1]:
-        for dx in [-1, 0, 1]:
-            url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{tile_y+dy}/{tile_x+dx}"
+    def download_single_tile(dx, dy):
+        """Scarica un singolo tile con retry"""
+        url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{tile_y+dy}/{tile_x+dx}"
+        
+        for attempt in range(max_retries):
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=8)  # timeout ridotto a 8s
                 if response.status_code == 200:
-                    img = Image.open(BytesIO(response.content))
-                    tiles.append((dx, dy, img))
-            except:
-                # Tile nero se fallisce
-                tiles.append((dx, dy, Image.new('RGB', (256, 256), color='black')))
+                    return (dx, dy, Image.open(BytesIO(response.content)))
+                elif attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))  # backoff ridotto: 0.3s, 0.6s
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))
+        
+        # Tutti i tentativi falliti → tile nero
+        return (dx, dy, Image.new('RGB', (256, 256), color='black'))
+    
+    # Scarica tile (parallelo o seriale)
+    tiles = []
+    if use_parallel:
+        # DOWNLOAD PARALLELO: ~5-10x più veloce!
+        with ThreadPoolExecutor(max_workers=9) as executor:
+            tile_coords = [(dx, dy) for dy in [-1, 0, 1] for dx in [-1, 0, 1]]
+            futures = {executor.submit(download_single_tile, dx, dy): (dx, dy) 
+                      for dx, dy in tile_coords}
+            
+            for future in as_completed(futures):
+                tiles.append(future.result())
+    else:
+        # Download seriale (backup)
+        for dy in [-1, 0, 1]:
+            for dx in [-1, 0, 1]:
+                tiles.append(download_single_tile(dx, dy))
     
     # Crea immagine composita 3x3
     composite = Image.new('RGB', (256*3, 256*3))
@@ -206,34 +238,51 @@ def calculate_vegetation_score(img):
     vegetation_score = green_pixels / total_pixels
     return vegetation_score
 
-def is_patch_valid(img, max_vegetation=0.60, min_brightness=30):
+def is_patch_valid(img, max_vegetation=0.60, min_brightness=30, max_black_ratio=0.01, max_black_band_size=30):
     """Valida se una patch è adatta per il training
     
     Args:
         img: Immagine PIL
         max_vegetation: Percentuale massima di vegetazione tollerata (0-1)
         min_brightness: Luminosità media minima (0-255)
+        max_black_ratio: Percentuale massima di pixel neri tollerata (0-1, default 1%)
+        max_black_band_size: Dimensione massima banda nera continua in pixel (default 30px)
     
     Returns:
         (bool, str): (is_valid, reason)
     """
-    # Check 1: Troppa vegetazione
-    veg_score = calculate_vegetation_score(img)
-    if veg_score > max_vegetation:
-        return False, f"Troppa vegetazione ({veg_score:.1%})"
-    
-    # Check 2: Troppo scura (ombre/nuvole)
     img_array = np.array(img)
+    
+    # Check 1: Pixel neri (PRIMA - più veloce e scarta molte patch)
+    black_mask = np.all(img_array == 0, axis=2)
+    black_pixels = np.sum(black_mask)
+    total_pixels = img_array.shape[0] * img_array.shape[1]
+    black_ratio = black_pixels / total_pixels
+    if black_ratio > max_black_ratio:  # Default: Max 1% pixel neri (bilanciato)
+        return False, f"Troppi tile mancanti ({black_ratio:.1%})"
+    
+    # Check 2: Bande nere continue (secondo check più veloce)
+    # Controlla righe con troppi pixel neri
+    black_rows = np.sum(black_mask, axis=1)
+    max_black_in_row = np.max(black_rows)
+    if max_black_in_row > max_black_band_size:
+        return False, f"Banda nera orizzontale ({max_black_in_row}px)"
+    
+    # Controlla colonne con troppi pixel neri
+    black_cols = np.sum(black_mask, axis=0)
+    max_black_in_col = np.max(black_cols)
+    if max_black_in_col > max_black_band_size:
+        return False, f"Banda nera verticale ({max_black_in_col}px)"
+    
+    # Check 3: Luminosità (veloce)
     mean_brightness = np.mean(img_array)
     if mean_brightness < min_brightness:
         return False, f"Troppo scura (brightness={mean_brightness:.1f})"
     
-    # Check 3: Troppi pixel neri (tile mancanti)
-    black_pixels = np.sum(np.all(img_array == 0, axis=2))
-    total_pixels = img_array.shape[0] * img_array.shape[1]
-    black_ratio = black_pixels / total_pixels
-    if black_ratio > 0.10:  # Max 10% pixel neri
-        return False, f"Troppi tile mancanti ({black_ratio:.1%})"
+    # Check 4: Vegetazione (più lento, ultimo)
+    veg_score = calculate_vegetation_score(img)
+    if veg_score > max_vegetation:
+        return False, f"Troppa vegetazione ({veg_score:.1%})"
     
     return True, "OK"
 
@@ -269,8 +318,18 @@ def process_satellite_image(sat_img, bbox, size=512):
     
     return Image.fromarray(rgb_array, mode='RGB')
 
-def create_road_binary_mask(roads_subset, bbox, size=512, line_width=5):
-    """Rasterizza le geometrie delle strade su una maschera binaria mono-canale (L)."""
+def create_road_binary_mask(roads_subset, bbox, size=512, line_width=5, sat_img=None, mask_black_areas=True):
+    """Rasterizza le geometrie delle strade su una maschera binaria mono-canale (L).
+    
+    Args:
+        roads_subset: GeoDataFrame con le geometrie delle strade
+        bbox: Bounding box [minx, miny, maxx, maxy]
+        size: Dimensione immagine output in pixel
+        line_width: Larghezza linee strade in pixel
+        sat_img: Immagine satellitare (opzionale). Se fornita e mask_black_areas=True,
+                 rimuove le strade dalle aree completamente nere (tile mancanti)
+        mask_black_areas: Se True, rimuove strade dalle aree nere dell'immagine satellitare
+    """
     if roads_subset.crs is not None and roads_subset.crs != 'EPSG:4326':
         roads_subset = roads_subset.to_crs('EPSG:4326')
 
@@ -315,6 +374,17 @@ def create_road_binary_mask(roads_subset, bbox, size=512, line_width=5):
     # Converti da 0/255 a 0/1 per nnU-Net (le strade sono 1, background è 0)
     mask_array = np.array(mask)
     mask_array = (mask_array > 0).astype(np.uint8)  # Converti 255 → 1
+    
+    # Maschera le strade dove l'immagine satellitare è completamente nera (tile mancanti)
+    if sat_img is not None and mask_black_areas:
+        sat_array = np.array(sat_img)
+        
+        # Trova pixel completamente neri nell'immagine satellitare (tile mancanti)
+        black_mask = (sat_array[:, :, 0] == 0) & (sat_array[:, :, 1] == 0) & (sat_array[:, :, 2] == 0)
+        
+        # Rimuovi le strade dalle aree nere
+        mask_array[black_mask] = 0
+    
     return Image.fromarray(mask_array, mode='L')
 
 def create_road_mask(roads_subset, bbox, sat_img, size=512, line_width=5, mask_black_areas=True):
@@ -423,13 +493,15 @@ while saved_images < num_images and attempts < max_attempts * num_images:
     print(f"  Trovate {len(roads_in_patch)} strade")
     
     sat_img_raw = None
-    # === SCARICA TILE SATELLITARE (solo se serve imm o all) ===
-    if SAVE_IMM or SAVE_ALL:
+    # === SCARICA TILE SATELLITARE (necessario per imm, lab, e all) ===
+    if SAVE_IMM or SAVE_ALL or SAVE_LAB:
         print("  Scaricando immagine satellitare...")
         sat_img_raw = download_satellite_image(bbox, zoom=17, size=image_size)
         
         # === VALIDAZIONE PATCH (FILTRO 2: Qualità immagine) ===
-        is_valid, reason = is_patch_valid(sat_img_raw, max_vegetation=0.60, min_brightness=30)
+        # max_black_ratio=0.01 → scarta immagini con >1% pixel neri (bilanciato qualità/velocità)
+        # max_black_band_size=30 → scarta se c'è una banda nera >30px
+        is_valid, reason = is_patch_valid(sat_img_raw, max_vegetation=0.60, min_brightness=30, max_black_ratio=0.01, max_black_band_size=30)
         if not is_valid:
             print(f"  ⚠️  Patch scartata: {reason}")
             continue  # Salta questa patch e prova la prossima
@@ -452,7 +524,8 @@ while saved_images < num_images and attempts < max_attempts * num_images:
     # === SALVA MASCHERA STRADE BINARIA (lab) ===
     if SAVE_LAB:
         print("  Creando maschera strade binaria...")
-        lab_mask = create_road_binary_mask(roads_in_patch, bbox, size=image_size)
+        # Passa l'immagine satellitare per rimuovere strade dalle aree nere
+        lab_mask = create_road_binary_mask(roads_in_patch, bbox, size=image_size, sat_img=sat_img_raw, mask_black_areas=True)
         
         # Verifica che ci siano abbastanza pixel strada
         road_pixels = np.sum(np.array(lab_mask) > 0)

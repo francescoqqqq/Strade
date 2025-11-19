@@ -1,5 +1,5 @@
 # Configuration file for Dataset001_Strade generation
-# Edit this file and run: python Buono.py --config config.yaml
+# Edit this file and run: python made_dataset.py --config config.yaml
 
 dataset:
   id: "001"

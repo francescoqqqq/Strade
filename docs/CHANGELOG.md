@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Initial release** of Dataset001_Strade
-- Script `Buono.py` for automatic dataset generation from OSM + satellite imagery
+- Script `made_dataset.py` for automatic dataset generation from OSM + satellite imagery
 - Support for ESRI World Imagery tiles (zoom 17, ~2.39m/pixel)
 - Binary road segmentation masks (0/1 format for nnU-Net)
 - Visualization versions of labels (0/255) for debugging

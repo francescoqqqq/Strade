@@ -27,12 +27,12 @@ python visualize_samples.py --indices 0 10 50 100 --output specific_samples.png
 ### Generate new dataset
 
 ```bash
-# Edit configuration in Buono.py:
+# Edit configuration in made_dataset.py:
 # - osm_file: path to .osm.pbf file
 # - num_images: number of images to generate
 # - data: "imm,lab,all" (what to save)
 
-python Buono.py
+python made_dataset.py
 ```
 
 ### Configuration options
@@ -224,7 +224,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # Change "batch_size": 12 → 6 or 4
 
 # Or train with smaller images:
-# Edit Buono.py and set image_size = 256
+# Edit made_dataset.py and set image_size = 256
 ```
 
 ### Training stuck or slow
@@ -250,12 +250,12 @@ nnUNetv2_plan_and_preprocess -d 1 --verify_dataset_integrity
 python visualize_samples.py --indices 0 1 2 3
 
 # Verify label values (should be 0/1, not 0/255)
-python -c "
+python -c '
 from PIL import Image
 import numpy as np
-label = np.array(Image.open('/workspace/nnUNet_raw/Dataset001_Strade/labelsTr/strade_0000.png'))
-print('Unique values:', np.unique(label))
-"
+label = np.array(Image.open("/workspace/nnUNet_raw/Dataset001_Strade/labelsTr/strade_0000.png"))
+print("Unique values:", np.unique(label))
+'
 ```
 
 ---
@@ -268,7 +268,7 @@ print('Unique values:', np.unique(label))
 - **requirements.txt**: Python dependencies
 
 ### Scripts
-- **Buono.py**: Dataset generation
+- **made_dataset.py**: Dataset generation
 - **visualize_samples.py**: Dataset visualization
 - **check_gpu.py**: System check
 
@@ -286,7 +286,7 @@ print('Unique values:', np.unique(label))
 python check_gpu.py
 
 # 2. Generate dataset (if not done)
-python Buono.py
+python made_dataset.py
 
 # 3. Visualize samples
 python visualize_samples.py --num 10 --output samples.png
@@ -314,7 +314,7 @@ nnUNetv2_predict -i /path/to/images -o /path/to/output -d 1 -c 2d
 | Task | Command |
 |------|---------|
 | Check system | `python check_gpu.py` |
-| Generate dataset | `python Buono.py` |
+| Generate dataset | `python made_dataset.py` |
 | View samples | `python visualize_samples.py --stats` |
 | Preprocess | `nnUNetv2_plan_and_preprocess -d 1` |
 | Train (test) | `nnUNetv2_train 1 2d 0` |
