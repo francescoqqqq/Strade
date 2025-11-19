@@ -70,8 +70,8 @@ backups/
 
 # Results
 comparison_results/*.png
-risultati/Confronto_imm/*.png
 test_*.png
+# Note: risultati/Confronto_imm/ è incluso (poche immagini, utili per documentazione)
 
 # OS
 .DS_Store
