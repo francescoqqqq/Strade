@@ -8,8 +8,8 @@ Salva risultati in: risultati/risultati_test.txt e risultati/Confronto_imm/
 import os
 import sys
 import numpy as np
-from PIL import Image
-import matplotlib.pyplot as plt
+from PIL import Image  # pyright: ignore[reportMissingImports]
+import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
 from pathlib import Path
 import random
 from datetime import datetime

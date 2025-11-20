@@ -11,11 +11,15 @@ import math
 from pathlib import Path
 from shapely.geometry import box  # pyright: ignore[reportMissingModuleSource]
 
+# === SEED FISSO PER RIPRODUCIBILITÀ ===
+random.seed(42)
+np.random.seed(42)
+
 # === CONFIGURAZIONE ===
 osm_file = "/workspace/belgium-roads.osm.pbf"
 dataset_id = "001"
 dataset_name = "Strade"
-num_images = 2000
+num_images = 2000  # Ripristinato a 2000 (era 70 per test)
 image_size = 512
 max_attempts = 100  # Numero massimo di tentativi per trovare patch con strade
 data = "imm, lab"  # Opzioni: imm, lab, all (separate da virgola)
@@ -446,10 +450,61 @@ def create_road_mask(roads_subset, bbox, sat_img, size=512, line_width=5, mask_b
     
     return result
 
-def find_patch_with_roads(roads, bounds, patch_size_deg, max_attempts=100):
-    """Trova una patch casuale che contiene almeno una strada"""
+def find_patch_with_roads(roads, bounds, patch_size_deg, max_attempts=100, ensure_geographic_diversity=True):
+    """Trova una patch casuale che contiene almeno una strada
+    
+    Args:
+        roads: GeoDataFrame con le strade
+        bounds: Bounds geografici
+        patch_size_deg: Dimensione patch in gradi
+        max_attempts: Numero massimo tentativi
+        ensure_geographic_diversity: Se True, divide l'area in celle e campiona uniformemente
+    """
     margin = patch_size_deg * 2
     
+    # STRATEGIA 1: Sampling stratificato per diversità geografica
+    if ensure_geographic_diversity:
+        # Divide l'area in una griglia 10x10
+        num_cells = 10
+        cell_width = (bounds[2] - bounds[0]) / num_cells
+        cell_height = (bounds[3] - bounds[1]) / num_cells
+        
+        # Scegli una cella casuale
+        cell_x = random.randint(0, num_cells - 1)
+        cell_y = random.randint(0, num_cells - 1)
+        
+        # Campiona all'interno della cella
+        cell_bounds = [
+            bounds[0] + cell_x * cell_width,
+            bounds[1] + cell_y * cell_height,
+            bounds[0] + (cell_x + 1) * cell_width,
+            bounds[1] + (cell_y + 1) * cell_height
+        ]
+        
+        # Prova a trovare una patch dentro questa cella
+        for attempt in range(max_attempts // 2):  # Meno tentativi per cella
+            x_center = random.uniform(cell_bounds[0] + margin, cell_bounds[2] - margin)
+            y_center = random.uniform(cell_bounds[1] + margin, cell_bounds[3] - margin)
+            
+            # Crea bbox perfettamente quadrato
+            half_size = patch_size_deg / 2
+            bbox = [
+                x_center - half_size,
+                y_center - half_size,
+                x_center + half_size,
+                y_center + half_size
+            ]
+            
+            # Verifica se ci sono strade
+            bbox_geom = box(bbox[0], bbox[1], bbox[2], bbox[3])
+            roads_in_patch = roads[roads.intersects(bbox_geom)]
+            
+            if len(roads_in_patch) > 0:
+                return bbox, roads_in_patch, (x_center, y_center)
+        
+        # Se non trova nulla in questa cella, passa alla strategia casuale globale
+    
+    # STRATEGIA 2: Sampling completamente casuale (fallback)
     for attempt in range(max_attempts):
         # Genera coordinate casuali
         x_center = random.uniform(bounds[0] + margin, bounds[2] - margin)
@@ -499,9 +554,12 @@ while saved_images < num_images and attempts < max_attempts * num_images:
         sat_img_raw = download_satellite_image(bbox, zoom=17, size=image_size)
         
         # === VALIDAZIONE PATCH (FILTRO 2: Qualità immagine) ===
-        # max_black_ratio=0.01 → scarta immagini con >1% pixel neri (bilanciato qualità/velocità)
-        # max_black_band_size=30 → scarta se c'è una banda nera >30px
-        is_valid, reason = is_patch_valid(sat_img_raw, max_vegetation=0.60, min_brightness=30, max_black_ratio=0.01, max_black_band_size=30)
+        # FILTRI PIÙ STRINGENTI per evitare campioni problematici:
+        # - max_vegetation=0.45 → max 45% vegetazione (era 60%, troppo permissivo)
+        # - min_brightness=50 → brightness minima 50 (era 30, troppo scuro)
+        # - max_black_ratio=0.01 → scarta immagini con >1% pixel neri
+        # - max_black_band_size=30 → scarta se c'è una banda nera >30px
+        is_valid, reason = is_patch_valid(sat_img_raw, max_vegetation=0.45, min_brightness=50, max_black_ratio=0.01, max_black_band_size=30)
         if not is_valid:
             print(f"  ⚠️  Patch scartata: {reason}")
             continue  # Salta questa patch e prova la prossima

@@ -79,6 +79,7 @@ nnUNetv2_predict -i input_folder/ -o output_folder/ -d 1 -c 2d -f 0
 - **[📖 Documentazione dettagliata](docs/README.md)** - Guida completa
 - **[⚡ Quick Start](docs/QUICK_START.md)** - Inizia subito
 - **[🛠️ Installazione](docs/INSTALL.md)** - Setup ambiente
+- **[🐋 Setup Docker/SSH](docs/SETUP_ENVIRONMENT.md)** - Configurazione Docker ⭐
 - **[📝 Changelog](docs/CHANGELOG.md)** - Storia modifiche
 
 ---

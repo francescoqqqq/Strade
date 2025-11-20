@@ -8,7 +8,7 @@
         "background": 0,
         "road": 1
     },
-    "numTraining": 2000,
+    "numTraining": 70,
     "file_ending": ".png",
     "name": "Strade",
     "description": "Road segmentation from satellite imagery (RGB)",

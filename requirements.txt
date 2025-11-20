@@ -1,3 +1,8 @@
+# ============================================
+# Road Segmentation from Satellite Imagery
+# PhD Project - Francesco Girardello
+# ============================================
+
 # nnU-Net framework
 nnunetv2>=2.0
 

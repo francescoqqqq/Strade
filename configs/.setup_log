@@ -1,0 +1,59 @@
+╔════════════════════════════════════════════════════════════════╗
+║                   ENVIRONMENT SETUP LOG                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+Data: 2025-11-20
+Container: Docker
+Accesso: SSH
+
+AZIONI ESEGUITE:
+─────────────────────────────────────────────────────────────
+✓ Installate dipendenze Python da configs/requirements.txt
+✓ Creato /workspace/requirements.txt (versione principale)
+✓ Aggiunte variabili d'ambiente nnU-Net a ~/.bashrc
+✓ Configurata auto-attivazione venv in ~/.bashrc
+✓ Rimosso .vscode/settings.json (inutile per SSH)
+✓ Creata documentazione setup: docs/SETUP_ENVIRONMENT.md
+✓ Creato file status: ENVIRONMENT_STATUS.md
+✓ Aggiornato README.md principale
+
+DIPENDENZE INSTALLATE:
+─────────────────────────────────────────────────────────────
+- geopandas 1.1.1
+- shapely 2.1.2
+- pyproj 3.7.2
+- fiona 1.10.1
+- numpy 2.2.6
+- Pillow 11.3.0
+- nnunetv2 2.6.2
+- matplotlib 3.10.7
+- opencv-python 4.12.0
+- requests 2.32.5
+- scipy 1.16.3
+- tqdm 4.67.1
+
+CONFIGURAZIONE PERMANENTE:
+─────────────────────────────────────────────────────────────
+Location: ~/.bashrc
+
+export nnUNet_raw="/workspace/nnUNet_raw"
+export nnUNet_preprocessed="/workspace/nnUNet_preprocessed"
+export nnUNet_results="/workspace/nnUNet_results"
+
+if [ -d "/venv" ] && [ -z "$VIRTUAL_ENV" ]; then
+    source /venv/bin/activate
+fi
+
+TEST FINALI:
+─────────────────────────────────────────────────────────────
+✓ Import geopandas: OK
+✓ Import nnunetv2: OK
+✓ Variabili d'ambiente: OK
+✓ Virtual environment: OK
+✓ Sintassi made_dataset.py: OK
+
+STATUS: ✅ COMPLETAMENTE FUNZIONANTE
+
+╔════════════════════════════════════════════════════════════════╗
+║  Ambiente pronto per l'uso! Nessuna azione richiesta.         ║
+╚════════════════════════════════════════════════════════════════╝
