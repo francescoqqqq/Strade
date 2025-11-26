@@ -4,26 +4,29 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+.pytest_cache/
 
-# Virtual environments
-venv/
-ENV/
-env/
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs e file temporanei
+*.log
+*.tmp
+*.temp
+nohup.out
+
+# Dataset e risultati (troppo grandi per git)
+nnUNet_raw/
+nnUNet_preprocessed/
+nnUNet_results/
+risultati/
+*.osm.pbf
+
+# Backup
+backups/
+*.bak
 
 # IDE
 .vscode/
@@ -32,47 +35,18 @@ env/
 *.swo
 *~
 
-# Jupyter
-.ipynb_checkpoints/
-
-# nnU-Net codebase (separate git repo)
-nnUNet/
-
-# nnU-Net directories (large files)
-nnUNet_raw/*/imagesTr/*.png
-nnUNet_raw/*/labelsTr/*.png
-nnUNet_raw/*/labelsTr_viz/*.png
-nnUNet_raw/*/allTr/*.png
-nnUNet_preprocessed/*/nnUNetPlans_2d/
-nnUNet_preprocessed/*/gt_segmentations/
-nnUNet_results/**/fold_*/*.png
-nnUNet_results/**/fold_*/validation/
-nnUNet_results/**/fold_*/validation_raw/
-nnUNet_results/**/fold_*/*.pth
-nnUNet_results/**/fold_*/*.txt
-
-# Keep structure but ignore large files
-!nnUNet_raw/*/dataset.json
-!nnUNet_preprocessed/*/nnUNetPlans.json
-!nnUNet_preprocessed/*/dataset_fingerprint.json
-
-# OSM files (very large)
-*.osm.pbf
-
-# Temporary files
-*.tmp
-*.log
-*.pkl
-*.pth.tar
-
-# Backup folders
-backups/
-
-# Results
-comparison_results/*.png
-test_*.png
-# Note: risultati/Confronto_imm/ è incluso (poche immagini, utili per documentazione)
-
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment
+venv/
+env/
+.env
+
+# nnU-Net specific
+nnUNet/nnunetv2.egg-info/
+
+# Documentazione temporanea (solo .md nella root, tranne README.md)
+/*.md
+!/README.md
