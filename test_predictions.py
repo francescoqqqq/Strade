@@ -31,7 +31,7 @@ fold = 0
 
 # ========== MODALITÀ CONFRONTO ==========
 # Opzioni: 'baseline_only', 'with_cldice_only', 'both'
-COMPARISON_MODE = 'baseline_only'
+COMPARISON_MODE = 'both'
 # - 'baseline_only': testa solo modello baseline
 # - 'with_cldice_only': testa solo modello con clDice
 # - 'both': confronta entrambi i modelli side-by-side
@@ -44,8 +44,8 @@ labels_dir = os.path.join(raw_data_dir, "labelsTr")
 
 # Directory predizioni (dipendono dalla modalità)
 base_results_dir = f"/workspace/nnUNet_results/{dataset_name}"
-predictions_dir_baseline = os.path.join(base_results_dir, "baseline_dice_only/nnUNetTrainer__nnUNetPlans__2d/fold_{fold}/validation")
-predictions_dir_cldice = os.path.join(base_results_dir, "with_cldice_loss/nnUNetTrainer__nnUNetPlans__2d/fold_{fold}/validation")
+predictions_dir_baseline = os.path.join(base_results_dir, f"baseline_dice_only/nnUNetTrainer__nnUNetPlans__2d/fold_{fold}/validation")
+predictions_dir_cldice = os.path.join(base_results_dir, f"nnUNetTrainerClDice__nnUNetPlans__2d/fold_{fold}/validation")
 
 # Directory output organizzata
 if COMPARISON_MODE == 'both':
