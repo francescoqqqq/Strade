@@ -192,12 +192,19 @@ class CombinedClDiceLoss(nn.Module):
             for i, (pred_i, target_i) in enumerate(zip(pred, target_list)):
                 if weights[i] == 0:
                     continue
+                
                 # Compute base loss (Dice + CE) on this prediction
                 loss_base_i = self.base_loss(pred_i, target_i)
-                # Compute clDice loss (only on foreground class, use highest resolution target)
-                loss_cldice_i = self.cldice_loss(pred_i, target_i, class_index=1)
-                # Weighted combination for this resolution
-                combined_i = (1.0 - self.alpha) * loss_base_i + self.alpha * loss_cldice_i
+                
+                # CRITICAL FIX: Only apply clDice loss to full resolution output (index 0)
+                # Low resolution outputs corrupt gradients for topology preservation
+                if i == 0:
+                    loss_cldice_i = self.cldice_loss(pred_i, target_i, class_index=1)
+                    combined_i = (1.0 - self.alpha) * loss_base_i + self.alpha * loss_cldice_i
+                else:
+                    # For lower resolutions, use only Dice+CE
+                    combined_i = loss_base_i
+                
                 # Add weighted loss
                 total_loss += weights[i] * combined_i
             

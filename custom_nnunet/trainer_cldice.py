@@ -62,7 +62,7 @@ class nnUNetTrainerClDice(nnUNetTrainer):
         
         # clDice hyperparameters (can be modified before training)
         self.cldice_alpha = 0.4          # Weight for clDice loss (40% clDice, 60% Dice+CE)
-        self.cldice_iterations = 5       # Skeleton extraction iterations
+        self.cldice_iterations = 10      # Skeleton extraction iterations
         self.cldice_smooth = 1e-5        # Numerical stability epsilon
         
         print(f"\n{'='*70}")
@@ -112,7 +112,7 @@ class nnUNetTrainerClDice(nnUNetTrainer):
             alpha=self.cldice_alpha,
             cldice_iterations=self.cldice_iterations,
             cldice_smooth=self.cldice_smooth,
-            apply_softmax=False  # nnU-Net loss already handles softmax internally
+            apply_softmax=True  # Ensure input logits are converted to probabilities for skeletonization
         )
         
         return combined_loss
